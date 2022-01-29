@@ -20,6 +20,12 @@ class WebMIDIPlayer {
             (ma) => {
                 console.log("got midi access");
                 this.midi = ma;
+
+                let name = "output-0";
+                this.midi.outputs.forEach(v => {
+                    name = v.id;
+                });
+                this.outputId = name;
             },
             (msg) => {
                 console.log("failed to get midi access");
@@ -61,13 +67,29 @@ class WebMIDIPlayer {
             throw "midi not initialized";
         }
     }
+
+    createChannel() {
+        const chan = new MessageChannel();
+        chan.port1.onmessage = (evt) => {
+            const e = evt.data;
+            switch (e.instruction) {
+            case 'output-immediately':
+                this.outputImmediately(e.data);
+                break;
+            case 'output-with-timestamp':
+                this.outputWithTimestamp(e.data, e.timestamp);
+                break;
+            }
+        };
+        return chan.port2;
+    }
 }
 
 
 class WebMIDIScheduler {
-    constructor(interval, player) {
+    constructor(interval, playerPort) {
         const _interval = interval || 50 // 50 ms;
-        this.player = player;
+        this.playerPort = playerPort;
         this.interval = _interval;
         this.callback = null;
         this.isRunning = false;
@@ -92,12 +114,19 @@ class WebMIDIScheduler {
     }
 
     scheduleNow(data) {
-        this.player.outputImmediately(data);
+        this.playerPort.postMessage({
+            instruction: 'output-immediately',
+            data: data
+        });
     }
 
     scheduleNowWithDelay(data, delayMillis) {
         const ts = performance.now() + delayMillis;
-        this.player.outputWithTimestamp(data, ts);
+        this.playerPort.postMessage({
+            instruction: 'output-with-timestamp',
+            data: data,
+            timestamp: ts
+        });
     }
 
     _tick() {

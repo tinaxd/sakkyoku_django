@@ -3,14 +3,42 @@
  * @param instrument The instrument used in the track
  */
 
-const gWebMidiPlayer = new WebMIDIPlayer();
-gWebMidiPlayer.requestMIDIAccess();
+const midiWorker = new Worker("static/sakkyokuapp/javascript/WebMIDIWorker.js");
+
+class GlobalMIDIPlayer {
+    constructor() {
+        this.player = new WebMIDIPlayer();
+        this.player.requestMIDIAccess();
+        this.sched = new WebMIDIScheduler(50, this.player);
+    }
+
+    createChannel() {
+        const chan = new MessageChannel();
+        chan.port1.onmessage = this.onmessage.bind(this);
+        return chan.port2;
+    }
+
+    onmessage(d) {
+        const e = d.data;
+        switch (e.instruction) {
+        case 'schedule-now':
+            this.sched.scheduleNow(e.data);
+            break;
+        case 'schedule-with-delay':
+            this.sched.scheduleNowWithDelay(e.data, e.delayMillis);
+            break;
+        }
+    }
+}
+
+const gMidiPlayer = new GlobalMIDIPlayer();
+const port2 = gMidiPlayer.createChannel();
+midiWorker.postMessage(null, [port2]);
 
 class Track {
     constructor(instrumentID, song, trackNumber) {
         this.song = song;
         //this.sched = new WebAudioScheduler({ context: audioCtx });
-        this.mSched = new WebMIDIScheduler(50, gWebMidiPlayer);
         this.gainNode = audioCtx.createGain();
         this.setVolume(90);
         this.notes = [];
@@ -92,45 +120,13 @@ class Track {
         this.sched.start(callback);
         */
 
-        /* Web MIDI 用のスケジューラ */
-        const scheduledNotes = []; // ノートがスケジューリングされたか否か
-        for (let i=0; i<this.notes.length; i++) {
-            scheduledNotes.push(false);
-        }
-        const callback = function (proxy) {
-            const beatTime = 60.0 / this.song.tempo;
-            const requestedDuration = proxy.requestDuration;
-            const playbackTime = proxy.playbackTime;
-            for (let i=startNote; i<this.notes.length; i++) {
-                // プレイバック開始からノート開始までの実時間 (millis)
-                const absoluteTime = beatTime * (this.notes[i].beat - beat) * 1000;
-                if (absoluteTime < playbackTime) {
-                    // まだ再生位置に達していない
-                    continue;
-                } else if (absoluteTime > playbackTime + requestedDuration) {
-                    // 今要求されている時間外のノートに到達したので終了する
-                    break;
-                } else if (scheduledNotes[i]) {
-                    // 二重にスケジューリングされないようにする
-                    continue;
-                }
-
-                // 実時間のノートの長さ (millis)
-                const absoluteDuration = beatTime * this.notes[i].duration * 1000;
-                // MIDI チャンネル
-                const ch = this.trackNumber;
-                // MIDI イベント
-                const noteOn = [0x90 | ch, this.notes[i].noteNumber, this.notes[i].volume];
-                const noteOff = [0x80 | ch, this.notes[i].noteNumber, 0];
-                // スケジューリング
-                proxy.scheduleWithDelay(noteOn, absoluteTime - playbackTime);
-                proxy.scheduleWithDelay(noteOff, absoluteTime + absoluteDuration - playbackTime);
-                // スケジューリングされたとしてフラグをつける
-                scheduledNotes[i] = true;
-            }
-        }.bind(this);
-        this.midiProgramChangeIfNeeded();
-        this.mSched.start(callback);
+        // TODO: dont hardcode url
+        midiWorker.postMessage({
+            instruction: 'start-playing',
+            tempo: this.song.tempo,
+            notes: this.notes,
+            trackNumber: this.trackNumber
+        });
     }
     /**
      * Play a note
@@ -153,8 +149,15 @@ class Track {
         const velocity = Math.floor(100*volume);
         const noteOn = [0x90 | ch, noteNumber, velocity];
         const noteOff = [0x80 | ch, noteNumber, 0];
-        this.mSched.scheduleNow(noteOn);
-        this.mSched.scheduleNowWithDelay(noteOff, duration*1000);
+        midiWorker.postMessage({
+            instruction: 'schedule-now',
+            data: noteOn
+        });
+        midiWorker.postMessage({
+            instruction: 'schedule-with-delay',
+            data: noteOff,
+            delayMillis: duration*1000
+        });
     }
     /**
      * Get the index where the Beat should be
@@ -216,7 +219,10 @@ class Track {
         if (this.programChanged) return;
         const pc = this.instrument.programChange;
         const data = [0xc0 | this.trackNumber, pc];
-        this.mSched.scheduleNow(data);
+        midiWorker.postMessage({
+            instruction: 'schedule-now',
+            data: data
+        });
     }
 }
 
