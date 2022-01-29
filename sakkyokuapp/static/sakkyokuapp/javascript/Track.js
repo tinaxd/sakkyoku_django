@@ -119,15 +119,16 @@ class Track {
         // let beatTime = 60.0 / this.song.tempo;
         // this.instrument.play(this, note.noteNumber, note.duration * beatTime, note.volume);
         //noteToPlay.connect(this.audiolet.output);
-        this.playMidiNote(midiNoteNumber, duration, volume);
+        this.playMidiNote(midiNoteNumber, duration, volume, noteNumber);
     }
 
-    playMidiNote(noteNumber, duration, volume) {
+    playMidiNote(noteNumber, duration, volume, freq) {
         this.midiProgramChangeIfNeeded();
         const ch = this.trackNumber;
         const velocity = Math.floor(100*volume);
-        const noteOn = [0x90 | ch, noteNumber, velocity];
-        const noteOff = [0x80 | ch, noteNumber, 0];
+        const nn = this.mapMidiNoteNumber(freq, noteNumber);
+        const noteOn = [0x90 | ch, nn, velocity];
+        const noteOff = [0x80 | ch, nn, 0];
         this.midiWorker.postMessage({
             instruction: 'schedule-now',
             data: noteOn
@@ -138,6 +139,15 @@ class Track {
             delayMillis: duration*1000
         });
     }
+
+    mapMidiNoteNumber(freq, noteNumber) {
+        const inst = this.instrument;
+        if (this.instrument.mapNote) {
+            return this.instrument.mapNote(freq, noteNumber);
+        }
+        return noteNumber;
+    }
+
     /**
      * Get the index where the Beat should be
      * @param {Number} beat The beat
