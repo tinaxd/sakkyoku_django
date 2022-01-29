@@ -79,6 +79,8 @@ class WebMIDIPlayer {
             case 'output-with-timestamp':
                 this.outputWithTimestamp(e.data, e.timestamp);
                 break;
+            case 'output-with-delay':
+                this.outputWithTimestamp(e.data, performance.now() + e.delayMillis);
             }
         };
         return chan.port2;
@@ -125,7 +127,7 @@ class WebMIDIScheduler {
     }
 
     scheduleNowWithDelay(data, delayMillis) {
-        const ts = performance.now() + delayMillis;
+        const ts = delayMillis + performance.now();
         this.playerPort.postMessage({
             instruction: 'output-with-timestamp',
             data: data,
@@ -140,7 +142,11 @@ class WebMIDIScheduler {
         const entries = proxy._entries;
 
         for (const entry of entries) {
-            this.player.outputWithTimestamp(entry.data, timestamp+entry.delayMillis);
+            this.playerPort.postMessage({
+                instruction: 'output-with-timestamp',
+                data: entry.data,
+                timestamp: 2000+timestamp+entry.delayMillis
+            });
         }
 
         this.playbackTimeMillis = timestamp - this._playbackStartedTs;
@@ -152,7 +158,7 @@ class WebMIDISchedulerProxy {
     constructor(scheduler) {
         this._scheduler = scheduler;
         this._entries = [];
-        this.requestDuration = this._scheduler.interval;
+        this.requestDuration = this._scheduler.interval*2;
         this.playbackTime = this._scheduler.playbackTimeMillis;
     }
 

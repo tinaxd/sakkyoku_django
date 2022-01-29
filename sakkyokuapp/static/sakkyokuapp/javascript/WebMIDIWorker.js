@@ -67,8 +67,8 @@ function startPlaying(e) {
             // スケジューリング
             const onDelay = absoluteTime-playbackTime;
             const offDelay = absoluteTime+absoluteDuration-playbackTime;
-            sched.scheduleNowWithDelay(noteOn, onDelay);
-            sched.scheduleNowWithDelay(noteOff, offDelay);
+            proxy.scheduleWithDelay(noteOn, onDelay);
+            proxy.scheduleWithDelay(noteOff, offDelay);
             // スケジューリングされたとしてフラグをつける
             scheduledNotes[i] = true;
         }
