@@ -3,37 +3,9 @@
  * @param instrument The instrument used in the track
  */
 
-const midiWorker = new Worker("static/sakkyokuapp/javascript/WebMIDIWorker.js");
+const gMidiPlayer = new WebMIDIPlayer();
+gMidiPlayer.requestMIDIAccess();
 
-class GlobalMIDIPlayer {
-    constructor() {
-        this.player = new WebMIDIPlayer();
-        this.player.requestMIDIAccess();
-        this.sched = new WebMIDIScheduler(50, this.player);
-    }
-
-    createChannel() {
-        const chan = new MessageChannel();
-        chan.port1.onmessage = this.onmessage.bind(this);
-        return chan.port2;
-    }
-
-    onmessage(d) {
-        const e = d.data;
-        switch (e.instruction) {
-        case 'schedule-now':
-            this.sched.scheduleNow(e.data);
-            break;
-        case 'schedule-with-delay':
-            this.sched.scheduleNowWithDelay(e.data, e.delayMillis);
-            break;
-        }
-    }
-}
-
-const gMidiPlayer = new GlobalMIDIPlayer();
-const port2 = gMidiPlayer.createChannel();
-midiWorker.postMessage(null, [port2]);
 
 class Track {
     constructor(instrumentID, song, trackNumber) {
@@ -47,6 +19,11 @@ class Track {
         this.trackNumber = trackNumber;
 
         this.gainNode.connect(masterGainNode);
+
+        // MIDI Worker
+        const midiPort2 = gMidiPlayer.createChannel();
+        this.midiWorker = new Worker("static/sakkyokuapp/javascript/WebMIDIWorker.js");
+        this.midiWorker.postMessage("", [midiPort2]);
 
         // Program Change イベントを送信したか? (Web MIDIのみ)
         this.programChanged = false;
@@ -120,12 +97,14 @@ class Track {
         this.sched.start(callback);
         */
 
-        // TODO: dont hardcode url
-        midiWorker.postMessage({
+        this.midiProgramChangeIfNeeded();
+        this.midiWorker.postMessage({
             instruction: 'start-playing',
             tempo: this.song.tempo,
             notes: this.notes,
-            trackNumber: this.trackNumber
+            trackNumber: this.trackNumber,
+            startNote: startNote,
+            beat: beat
         });
     }
     /**
@@ -149,11 +128,11 @@ class Track {
         const velocity = Math.floor(100*volume);
         const noteOn = [0x90 | ch, noteNumber, velocity];
         const noteOff = [0x80 | ch, noteNumber, 0];
-        midiWorker.postMessage({
+        this.midiWorker.postMessage({
             instruction: 'schedule-now',
             data: noteOn
         });
-        midiWorker.postMessage({
+        this.midiWorker.postMessage({
             instruction: 'schedule-with-delay',
             data: noteOff,
             delayMillis: duration*1000
@@ -219,7 +198,7 @@ class Track {
         if (this.programChanged) return;
         const pc = this.instrument.programChange;
         const data = [0xc0 | this.trackNumber, pc];
-        midiWorker.postMessage({
+        this.midiWorker.postMessage({
             instruction: 'schedule-now',
             data: data
         });

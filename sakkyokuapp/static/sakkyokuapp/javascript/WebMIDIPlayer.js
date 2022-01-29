@@ -53,7 +53,7 @@ class WebMIDIPlayer {
     }
 
     outputWithTimestamp(data, timestamp) {
-        // console.log("scheduled with timestamp: " + data);
+        // console.log("scheduled with timestamp: " + timestamp);
         this._currentOutput().send(data, timestamp);
     }
 
@@ -110,6 +110,10 @@ class WebMIDIScheduler {
     stop() {
         if (this._currentLoop !== null) {
             clearInterval(this._currentLoop);
+            this.callback = null;
+            this.playbackTimeMillis = 0;
+            this._playbackStartedTs = null;
+            this.isRunning = false;
         }
     }
 

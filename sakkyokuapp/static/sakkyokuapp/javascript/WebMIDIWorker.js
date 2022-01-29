@@ -1,9 +1,12 @@
-let port = null;
+importScripts("WebMIDIPlayer.js");
+
+let sched = null;
 
 onmessage = function(e) {
     if (e.ports && e.ports.length) {
-        port = e.ports[0];
+        const port = e.ports[0];
         console.log("WebMIDIWorker: received MessageChannel port");
+        sched = new WebMIDIScheduler(500, port);
         return;
     }
 
@@ -27,6 +30,10 @@ function startPlaying(e) {
     const notes = e.notes;
     const tempo = e.tempo;
     const trackNumber = e.trackNumber;
+    const startNote = e.startNote;
+    const beat = e.beat;
+
+    sched.stop();
 
     const scheduledNotes = []; // ノートがスケジューリングされたか否か
     for (let i=0; i<notes.length; i++) {
@@ -58,37 +65,24 @@ function startPlaying(e) {
             const noteOn = [0x90 | ch, notes[i].noteNumber, notes[i].volume];
             const noteOff = [0x80 | ch, notes[i].noteNumber, 0];
             // スケジューリング
-            port.postMessage({
-                instruction: 'schedule-with-delay',
-                data: noteOn,
-                delayMillis: absoluteTime-playbackTime
-            });
-            port.postMessage({
-                instruction: 'schedule-with-delay',
-                data: noteOff,
-                delayMillis: absoluteTime+absoluteDuration-playbackTime
-            });
+            const onDelay = absoluteTime-playbackTime;
+            const offDelay = absoluteTime+absoluteDuration-playbackTime;
+            sched.scheduleNowWithDelay(noteOn, onDelay);
+            sched.scheduleNowWithDelay(noteOff, offDelay);
             // スケジューリングされたとしてフラグをつける
             scheduledNotes[i] = true;
         }
     }.bind(this);
-    mSched.start(callback);
+    sched.start(callback);
 }
 
 function scheduleNow(e) {
     const data = e.data;
-    port.postMessage({
-        instruction: 'schedule-now',
-        data: data
-    });
+    sched.scheduleNow(data);
 }
 
 function scheduleWithDelay(e) {
     const data = e.data;
     const delayMillis = e.delayMillis;
-    port.postMessage({
-        instruction: 'schedule-with-delay',
-        data: data,
-        delayMillis: delayMillis
-    });
+    sched.scheduleNowWithDelay(data, delayMillis);
 }
